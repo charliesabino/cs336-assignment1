@@ -14,26 +14,36 @@ PRETOKEN_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+
 def tokenize(
     input_path: str, vocab_size: int, special_tokens: list[str]
 ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-    tokens = {b: bytes(b) for b in range(255)}
+    tokens = {b: bytes([b]) for b in range(255)}
     for token in special_tokens:
-        tokens[token.encode("utf-8")] = len(tokens)
+        tokens[len(tokens)] = token.encode("utf-8")
 
-    pretoken_cts = pretokenize(input_path)
+    pretoken_cts = pretokenize(input_path).items()
+    bp_cts = collections.defaultdict(int)
 
+    merges = []
     while len(tokens) < vocab_size:
-        bp_cts = collections.defaultdict(int)
-        for pretoken, ct in pretoken_cts.items():
-            for bp in get_byte_pairs(pretoken):
+        for pt, ct in pretoken_cts:
+            for bp in get_byte_pairs(pt):
                 bp_cts[bp] += ct
 
-    # TODO:
+        best = b"".join(sorted(bp_cts.items(), key=lambda x: (x[1], x[0]), reverse=True)[0][0])
+        merges.append(best)
+        tokens[len(tokens)] = best
+
+        bp_cts = collections.defaultdict(int)
+        pretoken_cts = [(encode(pt, best), ct) for pt, ct in pretoken_cts]
+
+    print(tokens, merges)
+    return tokens, merges
 
 
 def encode(t: tuple[bytes], token: bytes) -> tuple[bytes]:
     n = len(t)
     i = 0
     cur = b""
-    res = b""
+    res = []
+
     while i < min(len(token) - 1, n):
         cur += t[i]
         i += 1
@@ -42,13 +52,17 @@ def encode(t: tuple[bytes], token: bytes) -> tuple[bytes]:
         cur += t[i]
         i += 1
         if cur == token:
-            res += token
+            print("match")
+            res.append(token[:])
             cur = b""
         else:
-            res += cur[0]
+            res.append(bytes([cur[0]]))
             cur = cur[1:]
-    res += cur
-    return tuple(b for b in res)
+
+    if cur != b"":
+        res.append(cur)
+
+    return tuple(res)
 
 
 def pretokenize(input_path: str):
@@ -88,12 +102,12 @@ def pretokenize_chunk(input_path: str, offset: int, size: int):
     pretoken_cts = collections.defaultdict(int)
 
     for match in re.finditer(PRETOKEN_PAT, s):
-        pretoken_cts[tuple(b for b in match.group().encode("utf-8"))] += 1
+        pretoken_cts[tuple(bytes([b]) for b in match.group().encode("utf-8"))] += 1
 
     return pretoken_cts
 
 
-def get_byte_pairs(b: bytes) -> list[tuple[bytes, bytes, int]]:
+def get_byte_pairs(b: tuple[bytes]) -> list[tuple[bytes, bytes]]:
     return [(b[i], b[i + 1]) for i in range(len(b) - 1)]
 
 
