@@ -23,7 +23,7 @@ class Tokenizer:
         special_pattern = "|".join(map(re.escape, special_tokens))
         master_pattern = re.compile(f"({special_pattern})|({PRETOKEN_PAT})")
 
-        pretoken_cts = pretokenize(input_path, master_pattern).items()
+        pretoken_cts = pretokenize(input_path, master_pattern, special_tokens).items()
         bp_cts = collections.defaultdict(int)
 
         merges = []
@@ -39,6 +39,7 @@ class Tokenizer:
 
             bp_cts = collections.defaultdict(int)
             pretoken_cts = [(merge_pair(pt, best_pair, new_token_bytes), ct) for pt, ct in pretoken_cts]
+
         return tokens, merges
 
 
@@ -55,7 +56,7 @@ def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], 
     return tuple(new_sequence)
 
 
-def pretokenize(input_path: str, pattern: str):
+def pretokenize(input_path: str, pattern: str, special_tokens: list[str]):
     pretoken_cts = collections.defaultdict(int)
     with open(input_path, "rb") as f:
         boundaries = find_chunk_boundaries(f, multiprocessing.cpu_count(), END_OF_TEXT_STR.encode("utf-8"))
@@ -63,7 +64,10 @@ def pretokenize(input_path: str, pattern: str):
     num_processes = len(boundaries) - 1
 
     with multiprocessing.Pool(processes=num_processes) as pool:
-        args = [(input_path, boundaries[i], boundaries[i + 1] - boundaries[i], pattern) for i in range(num_processes)]
+        args = [
+            (input_path, boundaries[i], boundaries[i + 1] - boundaries[i], pattern, special_tokens)
+            for i in range(num_processes)
+        ]
         cts = pool.starmap(pretokenize_chunk, args)
 
     pretoken_cts = collections.defaultdict(int)
@@ -75,7 +79,7 @@ def pretokenize(input_path: str, pattern: str):
     return pretoken_cts
 
 
-def pretokenize_chunk(input_path: str, offset: int, size: int, pattern: str):
+def pretokenize_chunk(input_path: str, offset: int, size: int, pattern: str, special_tokens: list[str]):
     with open(input_path, "r") as f:
         f.seek(offset)
         s = f.read(max(0, size - len(END_OF_TEXT_STR)))
