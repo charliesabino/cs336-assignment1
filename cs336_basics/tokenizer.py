@@ -58,11 +58,7 @@ def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], 
 def pretokenize(input_path: str, pattern: str):
     pretoken_cts = collections.defaultdict(int)
     with open(input_path, "rb") as f:
-        boundaries = find_chunk_boundaries(
-            f,
-            multiprocessing.cpu_count(),
-            END_OF_TEXT_STR.encode("utf-8"),
-        )
+        boundaries = find_chunk_boundaries(f, multiprocessing.cpu_count(), END_OF_TEXT_STR.encode("utf-8"))
 
     num_processes = len(boundaries) - 1
 
@@ -86,7 +82,7 @@ def pretokenize_chunk(input_path: str, offset: int, size: int, pattern: str):
 
     pretoken_cts = collections.defaultdict(int)
 
-    for match in re.finditer(PRETOKEN_PAT, s):
+    for match in re.finditer(pattern, s):
         pretoken_cts[tuple(bytes([b]) for b in match.group().encode("utf-8"))] += 1
 
     return pretoken_cts
