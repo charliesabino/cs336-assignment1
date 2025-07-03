@@ -31,15 +31,16 @@ def tokenize(
 
 def encode(t: tuple[bytes], token: bytes) -> tuple[bytes]:
     n = len(t)
-    l = r = 0
+    i = 0
     cur = b""
     res = b""
-    while r < min(len(token) - 1, n):
-        cur += t[r]
-        r += 1
-    while r < n:
-        cur += t[r]
-        r += 1
+    while i < min(len(token) - 1, n):
+        cur += t[i]
+        i += 1
+
+    while i < n:
+        cur += t[i]
+        i += 1
         if cur == token:
             res += token
             cur = b""
@@ -62,8 +63,7 @@ def pretokenize(input_path: str):
     num_processes = len(boundaries) - 1
 
     with multiprocessing.Pool(processes=num_processes) as pool:
-        args = [(input_path, boundaries[i], boundaries[i + 1] - boundaries[i])
-                for i in range(num_processes)]
+        args = [(input_path, boundaries[i], boundaries[i + 1] - boundaries[i]) for i in range(num_processes)]
         cts = pool.starmap(pretokenize_chunk, args)
 
     pretoken_cts = collections.defaultdict(int)
@@ -102,8 +102,7 @@ def find_chunk_boundaries(file: BinaryIO, desired_num_chunks: int, split_special
     Chunk the file into parts that can be counted independently.
     May return fewer chunks if the boundaries end up overlapping.
     """
-    assert isinstance(split_special_token,
-                      bytes), "Must represent special token as a bytestring"
+    assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
 
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
