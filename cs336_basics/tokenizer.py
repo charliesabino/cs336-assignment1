@@ -27,42 +27,29 @@ def tokenize(
             for bp in get_byte_pairs(pt):
                 bp_cts[bp] += ct
 
-        best = b"".join(sorted(bp_cts.items(), key=lambda x: (x[1], x[0]), reverse=True)[0][0])
-        merges.append(best)
-        tokens[len(tokens)] = best
+        best_pair = sorted(bp_cts.items(), key=lambda x: (x[1], x[0]), reverse=True)[0][0]
+        new_token_bytes = best_pair[0] + best_pair[1]
+        merges.append(best_pair)
+        tokens[len(tokens)] = new_token_bytes
 
         bp_cts = collections.defaultdict(int)
-        pretoken_cts = [(encode(pt, best), ct) for pt, ct in pretoken_cts]
+        pretoken_cts = [(merge_pair(pt, best_pair, new_token_bytes), ct) for pt, ct in pretoken_cts]
 
-    print(tokens, merges)
+    print(merges)
     return tokens, merges
 
 
-def encode(t: tuple[bytes], token: bytes) -> tuple[bytes]:
-    n = len(t)
+def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], new_token: bytes) -> tuple[bytes, ...]:
+    new_sequence = []
     i = 0
-    cur = b""
-    res = []
-
-    while i < min(len(token) - 1, n):
-        cur += t[i]
-        i += 1
-
-    while i < n:
-        cur += t[i]
-        i += 1
-        if cur == token:
-            print("match")
-            res.append(token[:])
-            cur = b""
+    while i < len(sequence):
+        if i < len(sequence) - 1 and (sequence[i], sequence[i + 1]) == pair_to_merge:
+            new_sequence.append(new_token)
+            i += 2
         else:
-            res.append(bytes([cur[0]]))
-            cur = cur[1:]
-
-    if cur != b"":
-        res.append(cur)
-
-    return tuple(res)
+            new_sequence.append(sequence[i])
+            i += 1
+    return tuple(new_sequence)
 
 
 def pretokenize(input_path: str):
