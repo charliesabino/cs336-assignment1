@@ -21,7 +21,8 @@ def test_train_bpe_speed():
         special_tokens=["<|endoftext|>"],
     )
     end_time = time.time()
-    assert end_time - start_time < 1.5
+    t = end_time - start_time
+    assert t < 1.5
 
 
 def test_train_bpe():
@@ -77,6 +78,8 @@ def test_train_bpe_special_tokens(snapshot):
     # Check that the special token is not in the vocab
     vocabs_without_specials = [word for word in vocab.values() if word != b"<|endoftext|>"]
     for word_bytes in vocabs_without_specials:
+        if b"<|" in word_bytes:
+            print(f"found: {word_bytes}")
         assert b"<|" not in word_bytes
 
     snapshot.assert_match(
@@ -86,3 +89,4 @@ def test_train_bpe_special_tokens(snapshot):
             "merges": merges,
         },
     )
+
