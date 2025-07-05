@@ -6,7 +6,7 @@ import regex as re
 
 END_OF_TEXT_STR = "<|endoftext|>"
 PRETOKEN_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
+PRETOKEN_RE = re.compile(PRETOKEN_PAT)
 
 # TODO: iterate over file and regex OTF
 
@@ -84,7 +84,7 @@ def pretokenize_chunk(input_path: str, offset: int, size: int, special_tokens: l
     pretoken_cts = collections.defaultdict(int)
 
     for piece in pieces:
-        for match in re.finditer(PRETOKEN_PAT, piece):
+        for match in PRETOKEN_RE.finditer(piece):
             s = match.group()
             pretoken_cts[tuple(bytes([b]) for b in s.encode("utf-8"))] += 1
 
