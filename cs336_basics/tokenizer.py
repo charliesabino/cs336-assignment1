@@ -16,18 +16,21 @@ class Tokenizer:
     def tokenize(
         cls, input_path: str, vocab_size: int, special_tokens: list[str]
     ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-        tokens = {b: bytes([b]) for b in range(256)}
+        tokens = {i: bytes([i]) for i in range(256)}
         for token in special_tokens:
             tokens[len(tokens)] = token.encode("utf-8")
 
-        pretoken_cts = pretokenize(input_path, special_tokens).items()
-        bp_cts = collections.defaultdict(int)
-
+        pretoken_cts = pretokenize(input_path, special_tokens)
         merges = []
+
         while len(tokens) < vocab_size:
-            for pt, ct in pretoken_cts:
-                for bp in get_byte_pairs(pt):
-                    bp_cts[bp] += ct
+            bp_cts = collections.defaultdict(int)
+            for pt, ct in pretoken_cts.items():
+                for i in range(len(pt) - 1):
+                    bp_cts[(pt[i], pt[i + 1])] += ct
+
+            if not bp_cts:
+                break
 
             best_pair = max(bp_cts.items(), key=lambda x: (x[1], x[0]))[0]
 
@@ -35,8 +38,13 @@ class Tokenizer:
             merges.append(best_pair)
             tokens[len(tokens)] = new_token_bytes
 
-            bp_cts = collections.defaultdict(int)
-            pretoken_cts = [(merge_pair(pt, best_pair, new_token_bytes), ct) for pt, ct in pretoken_cts]
+            next_pretoken_cts = collections.defaultdict(int)
+
+            for pt, ct in pretoken_cts.items():
+                new_pt = merge_pair(pt, best_pair, new_token_bytes)
+                next_pretoken_cts[new_pt] += ct
+
+            pretoken_cts = next_pretoken_cts
 
         return tokens, merges
 
@@ -61,9 +69,11 @@ def pretokenize(input_path: str, special_tokens: list[str]):
 
     num_processes = len(boundaries) - 1
 
+    special_tokens_re = re.compile("|".join(map(re.escape, special_tokens)))
     with multiprocessing.Pool(processes=num_processes) as pool:
         args = [
-            (input_path, boundaries[i], boundaries[i + 1] - boundaries[i], special_tokens) for i in range(num_processes)
+            (input_path, boundaries[i], boundaries[i + 1] - boundaries[i], special_tokens_re)
+            for i in range(num_processes)
         ]
         cts = pool.starmap(pretokenize_chunk, args)
 
@@ -76,11 +86,10 @@ def pretokenize(input_path: str, special_tokens: list[str]):
     return pretoken_cts
 
 
-def pretokenize_chunk(input_path: str, offset: int, size: int, special_tokens: list[str]):
+def pretokenize_chunk(input_path: str, offset: int, size: int, special_tokens_re: re.Pattern):
     with open(input_path, "rb") as f:
         f.seek(offset)
-        pieces = re.split("|".join(map(re.escape, special_tokens)), f.read(size).decode("utf-8", "ignore"))
-
+        pieces = special_tokens_re.split(f.read(size).decode("utf-8", "ignore"))
     pretoken_cts = collections.defaultdict(int)
 
     for piece in pieces:
@@ -95,7 +104,7 @@ def get_byte_pairs(b: tuple[bytes]) -> list[tuple[bytes, bytes]]:
     return [(b[i], b[i + 1]) for i in range(len(b) - 1)]
 
 
-def find_chunk_boundaries(file, desired_num_chunks: int, split_special_token: bytes) -> list[int]:
+def find_chunk_boundaries(file: BinaryIO, desired_num_chunks: int, split_special_token: bytes) -> list[int]:
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
