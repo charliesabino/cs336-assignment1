@@ -7,6 +7,7 @@ import regex as re
 END_OF_TEXT_STR = "<|endoftext|>"
 PRETOKEN_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
+
 # TODO: iterate over file and regex OTF
 
 
@@ -28,10 +29,7 @@ class Tokenizer:
                 for bp in get_byte_pairs(pt):
                     bp_cts[bp] += ct
 
-            best_pair = sorted(bp_cts.items(), key=lambda x: (x[1], x[0]), reverse=True)[0][0]
-
-            # if len(merges) in [70, 71, 72, 73]:
-            #     print(list(sorted(bp_cts.items(), key=lambda x: (x[1], x[0]), reverse=True))[:2])
+            best_pair = max(bp_cts.items(), key=lambda x: (x[1], x[0]))[0]
 
             new_token_bytes = best_pair[0] + best_pair[1]
             merges.append(best_pair)
@@ -58,8 +56,8 @@ def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], 
 
 def pretokenize(input_path: str, special_tokens: list[str]):
     pretoken_cts = collections.defaultdict(int)
-    with open(input_path, "r") as f:
-        boundaries = find_chunk_boundaries(f, multiprocessing.cpu_count(), END_OF_TEXT_STR)
+    with open(input_path, "rb") as f:
+        boundaries = find_chunk_boundaries(f, multiprocessing.cpu_count(), END_OF_TEXT_STR.encode("utf-8"))
 
     num_processes = len(boundaries) - 1
 
@@ -79,9 +77,9 @@ def pretokenize(input_path: str, special_tokens: list[str]):
 
 
 def pretokenize_chunk(input_path: str, offset: int, size: int, special_tokens: list[str]):
-    with open(input_path, "r") as f:
+    with open(input_path, "rb") as f:
         f.seek(offset)
-        pieces = re.split("|".join(map(re.escape, special_tokens)), f.read(size))
+        pieces = re.split("|".join(map(re.escape, special_tokens)), f.read(size).decode("utf-8", "ignore"))
 
     pretoken_cts = collections.defaultdict(int)
 
@@ -97,7 +95,7 @@ def get_byte_pairs(b: tuple[bytes]) -> list[tuple[bytes, bytes]]:
     return [(b[i], b[i + 1]) for i in range(len(b) - 1)]
 
 
-def find_chunk_boundaries(file, desired_num_chunks: int, split_special_token: str) -> list[int]:
+def find_chunk_boundaries(file, desired_num_chunks: int, split_special_token: bytes) -> list[int]:
     file.seek(0, os.SEEK_END)
     file_size = file.tell()
     file.seek(0)
@@ -114,7 +112,7 @@ def find_chunk_boundaries(file, desired_num_chunks: int, split_special_token: st
         file.seek(initial_position)
         while True:
             mini_chunk = file.read(mini_chunk_size)
-            if mini_chunk == "":
+            if mini_chunk == b"":
                 chunk_boundaries[bi] = file_size
                 break
 
