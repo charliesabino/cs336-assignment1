@@ -8,45 +8,41 @@ END_OF_TEXT_STR = "<|endoftext|>"
 PRETOKEN_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 PRETOKEN_RE = re.compile(PRETOKEN_PAT)
 
-# TODO: iterate over file and regex OTF
 
+def tokenize(
+    input_path: str, vocab_size: int, special_tokens: list[str]
+) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
+    tokens = {i: bytes([i]) for i in range(256)}
+    for token in special_tokens:
+        tokens[len(tokens)] = token.encode("utf-8")
 
-class Tokenizer:
-    @classmethod
-    def tokenize(
-        cls, input_path: str, vocab_size: int, special_tokens: list[str]
-    ) -> tuple[dict[int, bytes], list[tuple[bytes, bytes]]]:
-        tokens = {i: bytes([i]) for i in range(256)}
-        for token in special_tokens:
-            tokens[len(tokens)] = token.encode("utf-8")
+    pretoken_cts = pretokenize(input_path, special_tokens)
+    merges = []
 
-        pretoken_cts = pretokenize(input_path, special_tokens)
-        merges = []
+    while len(tokens) < vocab_size:
+        bp_cts = collections.defaultdict(int)
+        for pt, ct in pretoken_cts.items():
+            for i in range(len(pt) - 1):
+                bp_cts[(pt[i], pt[i + 1])] += ct
 
-        while len(tokens) < vocab_size:
-            bp_cts = collections.defaultdict(int)
-            for pt, ct in pretoken_cts.items():
-                for i in range(len(pt) - 1):
-                    bp_cts[(pt[i], pt[i + 1])] += ct
+        if not bp_cts:
+            break
 
-            if not bp_cts:
-                break
+        best_pair = max(bp_cts.items(), key=lambda x: (x[1], x[0]))[0]
 
-            best_pair = max(bp_cts.items(), key=lambda x: (x[1], x[0]))[0]
+        new_token_bytes = best_pair[0] + best_pair[1]
+        merges.append(best_pair)
+        tokens[len(tokens)] = new_token_bytes
 
-            new_token_bytes = best_pair[0] + best_pair[1]
-            merges.append(best_pair)
-            tokens[len(tokens)] = new_token_bytes
+        next_pretoken_cts = collections.defaultdict(int)
 
-            next_pretoken_cts = collections.defaultdict(int)
+        for pt, ct in pretoken_cts.items():
+            new_pt = merge_pair(pt, best_pair, new_token_bytes)
+            next_pretoken_cts[new_pt] += ct
 
-            for pt, ct in pretoken_cts.items():
-                new_pt = merge_pair(pt, best_pair, new_token_bytes)
-                next_pretoken_cts[new_pt] += ct
+        pretoken_cts = next_pretoken_cts
 
-            pretoken_cts = next_pretoken_cts
-
-        return tokens, merges
+    return tokens, merges
 
 
 def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], new_token: bytes) -> tuple[bytes, ...]:
