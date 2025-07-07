@@ -42,7 +42,6 @@ class Tokenizer:
             splits = self.special_tokens_re.splititer(text)
         else:
             splits = [text]
-        print(f"Splits: {splits}")
 
         res = []
         for match in PRETOKEN_RE.finditer(text):
@@ -55,16 +54,11 @@ class Tokenizer:
         return res
     
     def _tokenize_pretoken(self, pretoken: str) -> list[int]:
-        print(f"Tokenizing pretoken: {pretoken}")
         current_token = tuple(bytes([b]) for b in pretoken.encode("utf-8"))
-        print(f"Current token: {current_token}")
         for m1, m2 in self.merges:
             if (m1, m2) in get_byte_pairs(current_token):
-                print(f"Merging {m1} and {m2}")
                 current_token = merge_pair(current_token, (m1, m2), m1 + m2)
-                print(f"Current token: {current_token}")
 
-        print(f"Final token: {current_token}")
         res = []
         for b in current_token:
             res.append(self.bytes_to_token[b])
@@ -76,8 +70,8 @@ class Tokenizer:
     def decode(self, tokens: list[int]) -> str:
         res = []
         for token in tokens:
-            res.append(self.vocab[token].decode("utf-8"))
-        return "".join(res)
+            res.append(self.vocab[token])
+        return b"".join(res).decode("utf-8")
 
 
 
