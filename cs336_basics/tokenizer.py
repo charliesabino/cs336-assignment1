@@ -3,10 +3,82 @@ from typing import BinaryIO
 import multiprocessing
 import collections
 import regex as re
+import pickle
+from typing import Iterable
 
 END_OF_TEXT_STR = "<|endoftext|>"
 PRETOKEN_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 PRETOKEN_RE = re.compile(PRETOKEN_PAT)
+
+class Tokenizer:
+    def __init__(
+        self,
+        vocab: dict[int, bytes],
+        merges: list[tuple[bytes, bytes]],
+        special_tokens: list[str] | None = None,
+    ):
+        self.vocab: dict[int, bytes] = vocab
+
+        self.bytes_to_token: dict[bytes, int] = {}
+        for t, b in self.vocab.items():
+            self.bytes_to_token[b] = t
+
+        self.merges: list[tuple[bytes, bytes]] = merges
+        self.special_tokens = special_tokens if special_tokens is not None else []
+
+        if special_tokens is not None:
+            self.special_tokens_re = re.compile(f"({'|'.join(map(re.escape, special_tokens))})")
+
+    @classmethod
+    def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None):
+        with open(vocab_filepath, "rb") as f:
+            vocab = pickle.load(f)
+        with open(merges_filepath, "rb") as f:
+            merges = pickle.load(f)
+        return cls(vocab, merges, special_tokens)
+
+    def encode(self, text: str) -> list[int]:
+        if len(self.special_tokens) > 0:
+            splits = self.special_tokens_re.splititer(text)
+        else:
+            splits = [text]
+        print(f"Splits: {splits}")
+
+        res = []
+        for match in PRETOKEN_RE.finditer(text):
+            s = match.group()
+            if s in self.special_tokens:
+                res.append(self.bytes_to_token[s.encode("utf-8")])
+            else:
+                res.extend(self._tokenize_pretoken(s))
+
+        return res
+    
+    def _tokenize_pretoken(self, pretoken: str) -> list[int]:
+        print(f"Tokenizing pretoken: {pretoken}")
+        current_token = tuple(bytes([b]) for b in pretoken.encode("utf-8"))
+        print(f"Current token: {current_token}")
+        for m1, m2 in self.merges:
+            if (m1, m2) in get_byte_pairs(current_token):
+                print(f"Merging {m1} and {m2}")
+                current_token = merge_pair(current_token, (m1, m2), m1 + m2)
+                print(f"Current token: {current_token}")
+
+        print(f"Final token: {current_token}")
+        res = []
+        for b in current_token:
+            res.append(self.bytes_to_token[b])
+        return res
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
+        pass
+
+    def decode(self, tokens: list[int]) -> str:
+        res = []
+        for token in tokens:
+            res.append(self.vocab[token].decode("utf-8"))
+        return "".join(res)
+
 
 
 def tokenize(
@@ -45,12 +117,12 @@ def tokenize(
     return tokens, merges
 
 
-def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], new_token: bytes) -> tuple[bytes, ...]:
+def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], new_token_bytes: bytes) -> tuple[bytes, ...]:
     new_sequence = []
     i = 0
     while i < len(sequence):
         if i < len(sequence) - 1 and (sequence[i], sequence[i + 1]) == pair_to_merge:
-            new_sequence.append(new_token)
+            new_sequence.append(new_token_bytes)
             i += 2
         else:
             new_sequence.append(sequence[i])
@@ -128,3 +200,12 @@ def find_chunk_boundaries(file: BinaryIO, desired_num_chunks: int, split_special
             initial_position += mini_chunk_size
 
     return sorted(set(chunk_boundaries))
+
+if __name__ == "__main__":
+    vocab, merges = tokenize("./data/TinyStoriesV2-GPT4-train.txt", 10000, ["<|endoftext|>"])
+    with open("vocab.pkl", "wb") as f:
+        pickle.dump(vocab, f)
+    with open("merges.pkl", "wb") as f:
+        pickle.dump(merges, f)
+    
+    print(f"Max length token: {max(vocab.values(), key=len).decode('utf-8')}")
