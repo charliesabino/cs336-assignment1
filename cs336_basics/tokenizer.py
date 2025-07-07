@@ -27,7 +27,7 @@ class Tokenizer:
         self.special_tokens = special_tokens if special_tokens is not None else []
 
         if special_tokens is not None:
-            self.special_tokens_re = re.compile(f"({'|'.join(map(re.escape, special_tokens))})")
+            self.special_tokens_re = re.compile(f"({'|'.join(map(re.escape, sorted(special_tokens, key=len, reverse=True)))})")
 
     @classmethod
     def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None):
@@ -44,12 +44,13 @@ class Tokenizer:
             splits = [text]
 
         res = []
-        for match in PRETOKEN_RE.finditer(text):
-            s = match.group()
-            if s in self.special_tokens:
-                res.append(self.bytes_to_token[s.encode("utf-8")])
+        for split in splits:
+            if split in self.special_tokens:
+                res.append(self.bytes_to_token[split.encode("utf-8")])
             else:
-                res.extend(self._tokenize_pretoken(s))
+                for match in PRETOKEN_RE.finditer(split):
+                    s = match.group()
+                    res.extend(self._tokenize_pretoken(s))
 
         return res
     
@@ -65,13 +66,15 @@ class Tokenizer:
         return res
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
-        pass
+        for text in iterable:
+            for t in self.encode(text):
+                yield t
 
     def decode(self, tokens: list[int]) -> str:
         res = []
         for token in tokens:
             res.append(self.vocab[token])
-        return b"".join(res).decode("utf-8")
+        return b"".join(res).decode("utf-8", errors="replace")
 
 
 
