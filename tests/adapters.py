@@ -13,7 +13,8 @@ from cs336_basics.embedding import Embedding
 from cs336_basics.RMSNorm import RMSNorm
 from cs336_basics.swiglu import SwiGLU
 from cs336_basics.rope import RotaryPositionalEmbedding
-from cs336_basics.attention import scaled_dot_product_attention, MultiHeadAttention
+from cs336_basics.attention import scaled_dot_product_attention, MultiHeadAttention, MultiHeadAttentionWithRope
+from cs336_basics.transformer import TransformerBlock
 
 def run_linear(
     d_in: int,
@@ -141,11 +142,9 @@ def run_multihead_self_attention(
         implementation with the given QKV projection weights and input features.
     """
     mha = MultiHeadAttention(d_model, num_heads)
-    
-    for head in mha.heads:
-        head.W_q.weight.data = q_proj_weight
-        head.W_k.weight.data = k_proj_weight
-        head.W_v.weight.data = v_proj_weight
+    mha.W_q.weight.data = q_proj_weight
+    mha.W_k.weight.data = k_proj_weight
+    mha.W_v.weight.data = v_proj_weight
     mha.W_o.weight.data = o_proj_weight
 
     return mha(in_features)
@@ -188,7 +187,12 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    mha = MultiHeadAttentionWithRope(d_model, num_heads, max_seq_len, theta)
+    mha.W_q.weight.data = q_proj_weight
+    mha.W_k.weight.data = k_proj_weight
+    mha.W_v.weight.data = v_proj_weight
+    mha.W_o.weight.data = o_proj_weight
+    return mha(in_features, token_positions)
 
 
 def run_rope(
@@ -284,8 +288,21 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    transformer = TransformerBlock(d_model, num_heads, d_ff, max_seq_len, theta)
+    transformer.mha.W_q.weight.data = weights["attn.q_proj.weight"]
+    transformer.mha.W_k.weight.data = weights["attn.k_proj.weight"]
+    transformer.mha.W_v.weight.data = weights["attn.v_proj.weight"]
+    transformer.mha.W_o.weight.data = weights["attn.output_proj.weight"]
 
+    transformer.ln1.gain.data = weights["ln1.weight"]
+
+    transformer.ffn.w1.weight.data = weights["ffn.w1.weight"]
+    transformer.ffn.w2.weight.data = weights["ffn.w2.weight"]
+    transformer.ffn.w3.weight.data = weights["ffn.w3.weight"]
+
+    transformer.ln2.gain.data = weights["ln2.weight"]
+
+    return transformer(in_features)
 
 def run_transformer_lm(
     vocab_size: int,
