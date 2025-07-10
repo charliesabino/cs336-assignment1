@@ -7,19 +7,18 @@ import math
 from cs336_basics.linear import Linear
 from cs336_basics.rope import RotaryPositionalEmbedding
 
-# scaled_dot_product_attention and Linear classes remain the same.
-
 def scaled_dot_product_attention(
     Q: Float[Tensor, " ... queries d_k"],
     K: Float[Tensor, " ... keys d_k"],
     V: Float[Tensor, " ... values d_v"],
     mask: Float[Tensor, " ... queries keys"] | None = None,
 ) -> Float[Tensor, " ... queries d_v"]:
-    prod = einsum(Q, K, "... queries d_k, ... keys d_k -> ... queries keys") / math.sqrt(Q.shape[-1])
+
+    logits = einsum(Q, K, "... q d, ... k d -> ... q k") / math.sqrt(Q.shape[-1])
     if mask is not None:
-        # Fills elements with -inf where mask is 0
-        prod = prod.masked_fill(mask == 0, -torch.inf)
-    weights = torch.softmax(prod, dim=-1)
+        logits.masked_fill_(mask == 0, -torch.inf)
+    weights = torch.softmax(logits, dim=-1)
+
     return einsum(weights, V, "... queries keys, ... keys d_v -> ... queries d_v")
 
 
@@ -97,3 +96,77 @@ class MultiHeadAttentionWithRope(nn.Module):
         return self.W_o(output_reshaped)
 
         
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        num_heads: int,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ) -> None:
+
+        super().__init__()
+
+        assert d_model % num_heads == 0, f"d_model ({d_model}) must be divisible by num_heads ({num_heads})"
+
+        self.d_model = d_model
+        self.num_heads = num_heads
+        self.d_k = d_model // num_heads
+        self.d_v = d_model // num_heads
+
+        factory_kwargs = {"device": device, "dtype": dtype}
+
+        self.q_proj = Linear(d_model, d_model, **factory_kwargs)
+        self.k_proj = Linear(d_model, d_model, **factory_kwargs)
+        self.v_proj = Linear(d_model, d_model, **factory_kwargs)
+        self.output_proj = Linear(d_model, d_model, **factory_kwargs)
+
+    def forward(
+        self,
+        x: Float[torch.Tensor, "... seq_len d_model"],
+        rope: RotaryPositionalEmbedding | None = None,
+        token_positions: Int[torch.Tensor, "... seq_len"] | None = None,
+    ) -> Float[torch.Tensor, "... seq_len d_model"]:
+        *batch_dims, seq_len, d_model = x.shape
+        batch_size = 1
+        for dim in batch_dims:
+            batch_size *= dim
+
+        Q = self.q_proj(x)
+        K = self.k_proj(x)
+        V = self.v_proj(x)
+
+        Q = Q.view(*batch_dims, seq_len, self.num_heads, self.d_k)
+        K = K.view(*batch_dims, seq_len, self.num_heads, self.d_k)
+        V = V.view(*batch_dims, seq_len, self.num_heads, self.d_v)
+
+        Q = Q.transpose(-3, -2)
+        K = K.transpose(-3, -2)
+        V = V.transpose(-3, -2)
+
+        if rope is not None and token_positions is not None:
+            original_q_shape = Q.shape
+            original_k_shape = K.shape
+
+            Q_flat = Q.reshape(-1, seq_len, self.d_k)
+            K_flat = K.reshape(-1, seq_len, self.d_k)
+
+            pos_expanded = token_positions.unsqueeze(-2)
+            pos_expanded = pos_expanded.expand(*batch_dims, self.num_heads, seq_len)
+            pos_flat = pos_expanded.reshape(-1, seq_len)
+
+            Q_flat = rope(Q_flat, pos_flat)
+            K_flat = rope(K_flat, pos_flat)
+
+            Q = Q_flat.reshape(original_q_shape)
+            K = K_flat.reshape(original_k_shape)
+
+        causal_mask = torch.triu(torch.ones(seq_len, seq_len, dtype=torch.bool, device=x.device), diagonal=1)
+        causal_mask = ~causal_mask
+
+        attn_output = scaled_dot_product_attention(Q, K, V, mask=causal_mask)
+        attn_output = attn_output.transpose(-3, -2)
+        attn_output = attn_output.reshape(*batch_dims, seq_len, self.d_model)
+
+        output = self.output_proj(attn_output)
+        return output

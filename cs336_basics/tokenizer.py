@@ -10,6 +10,7 @@ END_OF_TEXT_STR = "<|endoftext|>"
 PRETOKEN_PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 PRETOKEN_RE = re.compile(PRETOKEN_PAT)
 
+
 class Tokenizer:
     def __init__(
         self,
@@ -27,7 +28,9 @@ class Tokenizer:
         self.special_tokens = special_tokens if special_tokens is not None else []
 
         if special_tokens is not None:
-            self.special_tokens_re = re.compile(f"({'|'.join(map(re.escape, sorted(special_tokens, key=len, reverse=True)))})")
+            self.special_tokens_re = re.compile(
+                f"({'|'.join(map(re.escape, sorted(special_tokens, key=len, reverse=True)))})"
+            )
 
     @classmethod
     def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None):
@@ -53,7 +56,7 @@ class Tokenizer:
                     res.extend(self._tokenize_pretoken(s))
 
         return res
-    
+
     def _tokenize_pretoken(self, pretoken: str) -> list[int]:
         current_token = tuple(bytes([b]) for b in pretoken.encode("utf-8"))
         for m1, m2 in self.merges:
@@ -75,7 +78,6 @@ class Tokenizer:
         for token in tokens:
             res.append(self.vocab[token])
         return b"".join(res).decode("utf-8", errors="replace")
-
 
 
 def tokenize(
@@ -114,7 +116,9 @@ def tokenize(
     return tokens, merges
 
 
-def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], new_token_bytes: bytes) -> tuple[bytes, ...]:
+def merge_pair(
+    sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], new_token_bytes: bytes
+) -> tuple[bytes, ...]:
     new_sequence = []
     i = 0
     while i < len(sequence):
@@ -130,7 +134,7 @@ def merge_pair(sequence: tuple[bytes, ...], pair_to_merge: tuple[bytes, bytes], 
 def pretokenize(input_path: str, special_tokens: list[str]):
     pretoken_cts = collections.defaultdict(int)
     with open(input_path, "rb") as f:
-        boundaries = find_chunk_boundaries(f, multiprocessing.cpu_count(), END_OF_TEXT_STR.encode("utf-8"))
+        boundaries = find_chunk_boundaries(f, 4, END_OF_TEXT_STR.encode("utf-8"))
 
     num_processes = len(boundaries) - 1
 
@@ -198,11 +202,13 @@ def find_chunk_boundaries(file: BinaryIO, desired_num_chunks: int, split_special
 
     return sorted(set(chunk_boundaries))
 
+
 if __name__ == "__main__":
-    vocab, merges = tokenize("./data/TinyStoriesV2-GPT4-train.txt", 10000, ["<|endoftext|>"])
-    with open("vocab.pkl", "wb") as f:
+    vocab, merges = tokenize("./data/owt_train.txt", 32000, ["<|endoftext|>"])
+    with open("owt_vocab.pkl", "wb") as f:
         pickle.dump(vocab, f)
-    with open("merges.pkl", "wb") as f:
+    with open("owt_merges.pkl", "wb") as f:
         pickle.dump(merges, f)
-    
+
     print(f"Max length token: {max(vocab.values(), key=len).decode('utf-8')}")
+

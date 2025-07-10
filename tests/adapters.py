@@ -14,7 +14,7 @@ from cs336_basics.RMSNorm import RMSNorm
 from cs336_basics.swiglu import SwiGLU
 from cs336_basics.rope import RotaryPositionalEmbedding
 from cs336_basics.attention import scaled_dot_product_attention, MultiHeadAttention, MultiHeadAttentionWithRope
-from cs336_basics.transformer import TransformerBlock
+from cs336_basics.transformer import TransformerBlock, TransformerLM
 
 def run_linear(
     d_in: int,
@@ -288,21 +288,36 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    transformer = TransformerBlock(d_model, num_heads, d_ff, max_seq_len, theta)
-    transformer.mha.W_q.weight.data = weights["attn.q_proj.weight"]
-    transformer.mha.W_k.weight.data = weights["attn.k_proj.weight"]
-    transformer.mha.W_v.weight.data = weights["attn.v_proj.weight"]
-    transformer.mha.W_o.weight.data = weights["attn.output_proj.weight"]
+    block = TransformerBlock(
+            d_model=d_model,
+            num_heads=num_heads,
+            d_ff=d_ff,
+            device=in_features.device,
+            dtype=in_features.dtype,
+        )
 
-    transformer.ln1.gain.data = weights["ln1.weight"]
+    d_k = d_model // num_heads
+    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len, device=in_features.device)
 
-    transformer.ffn.w1.weight.data = weights["ffn.w1.weight"]
-    transformer.ffn.w2.weight.data = weights["ffn.w2.weight"]
-    transformer.ffn.w3.weight.data = weights["ffn.w3.weight"]
+    with torch.no_grad():
+        block.attn.q_proj.weight.copy_(weights["attn.q_proj.weight"])
+        block.attn.k_proj.weight.copy_(weights["attn.k_proj.weight"])
+        block.attn.v_proj.weight.copy_(weights["attn.v_proj.weight"])
+        block.attn.output_proj.weight.copy_(weights["attn.output_proj.weight"])
 
-    transformer.ln2.gain.data = weights["ln2.weight"]
+        block.ln1.gain.copy_(weights["ln1.weight"])
+        block.ln2.gain.copy_(weights["ln2.weight"])
 
-    return transformer(in_features)
+        block.ffn.w1.weight.copy_(weights["ffn.w1.weight"])
+        block.ffn.w2.weight.copy_(weights["ffn.w2.weight"])
+        block.ffn.w3.weight.copy_(weights["ffn.w3.weight"])
+
+    batch_size, sequence_length, _ = in_features.shape
+    token_positions = torch.arange(sequence_length, device=in_features.device)
+    token_positions = token_positions.unsqueeze(0).expand(batch_size, -1)
+
+    output = block(in_features, rope=rope, token_positions=token_positions)
+    return output
 
 def run_transformer_lm(
     vocab_size: int,
@@ -383,7 +398,18 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    transformer = TransformerLM(vocab_size, d_model, num_layers, num_heads, d_ff, context_length, rope_theta)
+    transformer.token_embeddings.weight.data = weights["token_embeddings.weight"]
+    for i, layer in enumerate(transformer.layers):
+        layer.mha.W_q.weight.data = weights[f"layers.{i}.attn.q_proj.weight"]
+        layer.mha.W_k.weight.data = weights[f"layers.{i}.attn.k_proj.weight"]
+        layer.mha.W_v.weight.data = weights[f"layers.{i}.attn.v_proj.weight"]
+        layer.mha.W_o.weight.data = weights[f"layers.{i}.attn.output_proj.weight"]
+
+    transformer.ln_final.gain.data = weights["ln_final.weight"]
+    transformer.lm_head.weight.data = weights["lm_head.weight"]
+
+    return transformer(in_indices)
 
 
 def run_rmsnorm(

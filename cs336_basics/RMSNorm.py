@@ -3,7 +3,7 @@ from torch import nn
 from einops import reduce
 
 class RMSNorm(nn.Module):
-    def __init__(self, d_model: int, eps: float = 1e-5, device: torch.device | None = None, dtype: torch.dtype | None = None):
+    def __init__(self, d_model: int, eps: float = 1e-6, device: torch.device | None = None, dtype: torch.dtype | None = None):
         super().__init__()
         self.d_model = d_model
         self.eps = eps
