@@ -1,5 +1,4 @@
 import torch
-from cs336_basics.softmax import softmax
 from jaxtyping import Float, Int
 from torch import Tensor
 
@@ -12,4 +11,5 @@ def cross_entropy(
     log_probs = logits - torch.log(tot)
     chosen_log_probs = log_probs.gather(
         dim=1, index=targets.unsqueeze(1)).squeeze(1)
+
     return -chosen_log_probs.mean()
