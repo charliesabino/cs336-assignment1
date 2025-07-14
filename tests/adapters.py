@@ -15,6 +15,9 @@ from cs336_basics.swiglu import SwiGLU
 from cs336_basics.rope import RotaryPositionalEmbedding
 from cs336_basics.attention import scaled_dot_product_attention, MultiHeadAttention, MultiHeadAttentionWithRope
 from cs336_basics.transformer import TransformerBlock, TransformerLM
+from cs336_basics.cross_entropy import cross_entropy
+from cs336_basics.adamw import AdamW
+
 
 def run_linear(
     d_in: int,
@@ -38,6 +41,7 @@ def run_linear(
     linear.load_state_dict({"weight": weights})
     return linear(in_features)
 
+
 def run_embedding(
     vocab_size: int,
     d_model: int,
@@ -59,6 +63,7 @@ def run_embedding(
     embedding = Embedding(vocab_size, d_model)
     embedding.load_state_dict({"weight": weights})
     return embedding(token_ids)
+
 
 def run_swiglu(
     d_model: int,
@@ -289,15 +294,16 @@ def run_transformer_block(
         running the Transformer block on the input features while using RoPE.
     """
     block = TransformerBlock(
-            d_model=d_model,
-            num_heads=num_heads,
-            d_ff=d_ff,
-            device=in_features.device,
-            dtype=in_features.dtype,
-        )
+        d_model=d_model,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        device=in_features.device,
+        dtype=in_features.dtype,
+    )
 
     d_k = d_model // num_heads
-    rope = RotaryPositionalEmbedding(theta=theta, d_k=d_k, max_seq_len=max_seq_len, device=in_features.device)
+    rope = RotaryPositionalEmbedding(
+        theta=theta, d_k=d_k, max_seq_len=max_seq_len, device=in_features.device)
 
     with torch.no_grad():
         block.attn.q_proj.weight.copy_(weights["attn.q_proj.weight"])
@@ -318,6 +324,7 @@ def run_transformer_block(
 
     output = block(in_features, rope=rope, token_positions=token_positions)
     return output
+
 
 def run_transformer_lm(
     vocab_size: int,
@@ -398,18 +405,47 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    transformer = TransformerLM(vocab_size, d_model, num_layers, num_heads, d_ff, context_length, rope_theta)
-    transformer.token_embeddings.weight.data = weights["token_embeddings.weight"]
-    for i, layer in enumerate(transformer.layers):
-        layer.mha.W_q.weight.data = weights[f"layers.{i}.attn.q_proj.weight"]
-        layer.mha.W_k.weight.data = weights[f"layers.{i}.attn.k_proj.weight"]
-        layer.mha.W_v.weight.data = weights[f"layers.{i}.attn.v_proj.weight"]
-        layer.mha.W_o.weight.data = weights[f"layers.{i}.attn.output_proj.weight"]
+    model = TransformerLM(
+        vocab_size=vocab_size,
+        context_length=context_length,
+        d_model=d_model,
+        num_layers=num_layers,
+        num_heads=num_heads,
+        d_ff=d_ff,
+        rope_theta=rope_theta,
+        device=in_indices.device,
+        dtype=torch.float32,
+    )
 
-    transformer.ln_final.gain.data = weights["ln_final.weight"]
-    transformer.lm_head.weight.data = weights["lm_head.weight"]
+    with torch.no_grad():
+        model.token_embeddings.weight.copy_(weights["token_embeddings.weight"])
 
-    return transformer(in_indices)
+        for layer_idx in range(num_layers):
+            layer = model.layers[layer_idx]
+
+            layer.attn.q_proj.weight.copy_(
+                weights[f"layers.{layer_idx}.attn.q_proj.weight"])
+            layer.attn.k_proj.weight.copy_(
+                weights[f"layers.{layer_idx}.attn.k_proj.weight"])
+            layer.attn.v_proj.weight.copy_(
+                weights[f"layers.{layer_idx}.attn.v_proj.weight"])
+            layer.attn.output_proj.weight.copy_(
+                weights[f"layers.{layer_idx}.attn.output_proj.weight"])
+
+            layer.ln1.gain.copy_(weights[f"layers.{layer_idx}.ln1.weight"])
+            layer.ln2.gain.copy_(weights[f"layers.{layer_idx}.ln2.weight"])
+
+            layer.ffn.w1.weight.copy_(
+                weights[f"layers.{layer_idx}.ffn.w1.weight"])
+            layer.ffn.w2.weight.copy_(
+                weights[f"layers.{layer_idx}.ffn.w2.weight"])
+            layer.ffn.w3.weight.copy_(
+                weights[f"layers.{layer_idx}.ffn.w3.weight"])
+
+        model.ln_final.gain.copy_(weights["ln_final.weight"])
+        model.lm_head.weight.copy_(weights["lm_head.weight"])
+
+    return model(in_indices)
 
 
 def run_rmsnorm(
@@ -435,6 +471,7 @@ def run_rmsnorm(
     rmsnorm = RMSNorm(d_model, eps)
     rmsnorm.load_state_dict({"gain": weights})
     return rmsnorm(in_features)
+
 
 def run_silu(in_features: Float[Tensor, " ..."]) -> Float[Tensor, " ..."]:
     """Given a tensor of inputs, return the output of applying SiLU
@@ -504,7 +541,7 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    return cross_entropy(inputs, targets)
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -523,7 +560,7 @@ def get_adamw_cls() -> type[torch.optim.Optimizer]:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
@@ -645,5 +682,3 @@ def run_train_bpe(
                 Merges are ordered by order of creation.
     """
     return tokenizer.tokenize(input_path, vocab_size, special_tokens)
-
-
