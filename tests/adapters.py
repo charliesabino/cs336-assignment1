@@ -17,7 +17,8 @@ from cs336_basics.attention import scaled_dot_product_attention, MultiHeadAttent
 from cs336_basics.transformer import TransformerBlock, TransformerLM
 from cs336_basics.cross_entropy import cross_entropy
 from cs336_basics.adamw import AdamW
-
+from cs336_basics.lr_cosine_schedule import lr_cosine_schedule
+from cs336_basics.gradient_clipping import gradient_clipping
 
 def run_linear(
     d_in: int,
@@ -553,7 +554,7 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    raise NotImplementedError
+    gradient_clipping(parameters, max_l2_norm)
 
 
 def get_adamw_cls() -> type[torch.optim.Optimizer]:
@@ -588,7 +589,7 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    return lr_cosine_schedule(it, max_learning_rate, min_learning_rate, warmup_iters, cosine_cycle_iters)
 
 
 def run_save_checkpoint(
