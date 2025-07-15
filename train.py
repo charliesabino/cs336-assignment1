@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
 Training script for the TransformerLM model.
+
+This script expects pre-tokenized data in .npy format.
+To tokenize your text data, use the separate tokenization script:
+    python tokenize_and_encode.py --mode train --input_file data.txt --output_file tokens.npy
+    python tokenize_and_encode.py --mode encode --input_file data.txt --output_file tokens.npy
 """
 
 import argparse
@@ -71,14 +76,21 @@ def parse_args():
 
 
 def load_data_memmap(data_path: str) -> np.ndarray:
-    """Load data using memory mapping for efficient memory usage."""
+    """
+    Load pre-tokenized data using memory mapping for efficient memory usage.
+    
+    This function expects .npy files containing tokenized data.
+    Use tokenize_and_encode.py to convert text files to the required format.
+    """
     if data_path.endswith('.npy'):
         return np.load(data_path, mmap_mode='r')
     elif data_path.endswith('.txt'):
-        # For text files, we need to tokenize and save as npy first
-        raise ValueError("Text files not supported directly. Please tokenize and save as .npy files.")
+        raise ValueError(
+            "Text files not supported directly. Please tokenize first using:\n"
+            "python tokenize_and_encode.py --mode encode --input_file your_file.txt --output_file tokenized_data.npy"
+        )
     else:
-        raise ValueError(f"Unsupported file format: {data_path}")
+        raise ValueError(f"Unsupported file format: {data_path}. Expected .npy files.")
 
 
 def evaluate_model(model: nn.Module, val_data: np.ndarray, eval_iters: int, 
