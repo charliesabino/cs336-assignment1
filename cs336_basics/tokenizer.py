@@ -27,6 +27,7 @@ class Tokenizer:
         self.merges: list[tuple[bytes, bytes]] = merges
         self.special_tokens = special_tokens if special_tokens is not None else []
 
+        self.cache: dict[str, list[int]] = {}
         if special_tokens is not None:
             self.special_tokens_re = re.compile(
                 f"({'|'.join(map(re.escape, sorted(special_tokens, key=len, reverse=True)))})"
@@ -42,7 +43,7 @@ class Tokenizer:
 
     def encode(self, text: str) -> list[int]:
         if len(self.special_tokens) > 0:
-            splits = self.special_tokens_re.splititer(text)
+            splits = self.special_tokens_re.split(text)
         else:
             splits = [text]
 
@@ -58,14 +59,16 @@ class Tokenizer:
         return res
 
     def _tokenize_pretoken(self, pretoken: str) -> list[int]:
+        if pretoken in self.cache:
+            return self.cache[pretoken]
+
         current_token = tuple(bytes([b]) for b in pretoken.encode("utf-8"))
         for m1, m2 in self.merges:
             if (m1, m2) in get_byte_pairs(current_token):
                 current_token = merge_pair(current_token, (m1, m2), m1 + m2)
 
-        res = []
-        for b in current_token:
-            res.append(self.bytes_to_token[b])
+        res = [self.bytes_to_token[b] for b in current_token]
+        self.cache[pretoken] = res
         return res
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterable[int]:
@@ -134,11 +137,16 @@ def merge_pair(
 def pretokenize(input_path: str, special_tokens: list[str]):
     pretoken_cts = collections.defaultdict(int)
     with open(input_path, "rb") as f:
-        boundaries = find_chunk_boundaries(f, 4, END_OF_TEXT_STR.encode("utf-8"))
+        boundaries = find_chunk_boundaries(f, multiprocessing.cpu_count(), END_OF_TEXT_STR.encode("utf-8"))
 
     num_processes = len(boundaries) - 1
 
-    special_tokens_re = re.compile("|".join(map(re.escape, special_tokens)))
+    if special_tokens:
+        sorted_specials = sorted(special_tokens, key=len, reverse=True)
+        special_tokens_re = re.compile("|".join(map(re.escape, sorted_specials)))
+    else:
+        special_tokens_re = None
+
     with multiprocessing.Pool(processes=num_processes) as pool:
         args = [
             (input_path, boundaries[i], boundaries[i + 1] - boundaries[i], special_tokens_re)
@@ -155,10 +163,15 @@ def pretokenize(input_path: str, special_tokens: list[str]):
     return pretoken_cts
 
 
-def pretokenize_chunk(input_path: str, offset: int, size: int, special_tokens_re: re.Pattern):
+def pretokenize_chunk(input_path: str, offset: int, size: int, special_tokens_re: re.Pattern | None):
     with open(input_path, "rb") as f:
         f.seek(offset)
-        pieces = special_tokens_re.split(f.read(size).decode("utf-8", "ignore"))
+        chunk_bytes = f.read(size)
+        chunk_text = chunk_bytes.decode("utf-8", errors="ignore")
+    if special_tokens_re is not None:
+        pieces = special_tokens_re.split(chunk_text)
+    else:
+        pieces = [chunk_text]
     pretoken_cts = collections.defaultdict(int)
 
     for piece in pieces:
@@ -169,7 +182,7 @@ def pretokenize_chunk(input_path: str, offset: int, size: int, special_tokens_re
     return pretoken_cts
 
 
-def get_byte_pairs(b: tuple[bytes]) -> list[tuple[bytes, bytes]]:
+def get_byte_pairs(b: tuple[bytes, ...]) -> list[tuple[bytes, bytes]]:
     return [(b[i], b[i + 1]) for i in range(len(b) - 1)]
 
 
@@ -211,4 +224,3 @@ if __name__ == "__main__":
         pickle.dump(merges, f)
 
     print(f"Max length token: {max(vocab.values(), key=len).decode('utf-8')}")
-
