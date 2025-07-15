@@ -26,6 +26,7 @@ from cs336_basics.lr_cosine_schedule import lr_cosine_schedule
 from cs336_basics.gradient_clipping import gradient_clipping
 from cs336_basics.checkpoint import save_checkpoint, load_checkpoint
 from cs336_basics.get_batch import get_batch
+from cs336_basics.experiment_tracker import ExperimentTracker
 
 
 def parse_args():
@@ -67,6 +68,8 @@ def parse_args():
     parser.add_argument('--log_interval', type=int, default=100, help='Logging interval')
     parser.add_argument('--eval_interval', type=int, default=500, help='Evaluation interval')
     parser.add_argument('--eval_iters', type=int, default=200, help='Number of evaluation iterations')
+    parser.add_argument('--experiment_name', type=str, default=None, help='Experiment name for tracking')
+    parser.add_argument('--experiments_dir', type=str, default='experiments', help='Directory for experiment logs')
     
     # Device settings
     parser.add_argument('--device', type=str, default='cuda' if torch.cuda.is_available() else 'cpu', help='Device to use')
@@ -125,7 +128,15 @@ def main():
     # Create checkpoint directory
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     
-    # Save config
+    # Initialize experiment tracker
+    experiment_name = args.experiment_name
+    if experiment_name is None:
+        experiment_name = f"run_{int(time.time())}"
+    
+    tracker = ExperimentTracker(experiment_name, args.experiments_dir)
+    tracker.log_config(vars(args))
+    
+    # Save config (keep existing behavior)
     config_path = os.path.join(args.checkpoint_dir, 'config.json')
     with open(config_path, 'w') as f:
         json.dump(vars(args), f, indent=2)
@@ -211,6 +222,8 @@ def main():
         # Logging
         if iteration % args.log_interval == 0:
             print(f"Iter {iteration:5d} | Loss: {loss.item():.4f} | LR: {lr:.6f}")
+            tracker.log_metric("train_loss", loss.item(), iteration)
+            tracker.log_metric("learning_rate", lr, iteration)
         
         # Evaluation
         if iteration % args.eval_interval == 0 and iteration > 0:
@@ -219,6 +232,7 @@ def main():
                 args.batch_size, args.context_length, args.device
             )
             print(f"Iter {iteration:5d} | Val Loss: {val_loss:.4f}")
+            tracker.log_metric("val_loss", val_loss, iteration)
         
         # Checkpointing
         if iteration % args.checkpoint_interval == 0 and iteration > 0:
@@ -230,6 +244,10 @@ def main():
     final_checkpoint_path = os.path.join(args.checkpoint_dir, 'final_checkpoint.pt')
     save_checkpoint(model, optimizer, args.max_iters, final_checkpoint_path)
     print(f"Saved final checkpoint: {final_checkpoint_path}")
+    
+    # Generate loss curve plots
+    tracker.plot_loss_curves(x_axis="steps")
+    tracker.plot_loss_curves(x_axis="time")
     
     print("Training completed!")
 
