@@ -43,10 +43,9 @@ def main():
     print(f"End of text marker: {args.end_of_text}")
     
     vocab, merges = tokenize(
-        input_file=args.input_file,
-        vocab_size=args.vocab_size,
-        special_tokens=args.special_tokens,
-        end_of_text=args.end_of_text
+        args.input_file,
+        args.vocab_size,
+        args.special_tokens
     )
     
     # Save vocabulary
