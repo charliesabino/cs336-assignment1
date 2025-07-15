@@ -46,6 +46,7 @@ def parse_args():
     # Training hyperparameters
     parser.add_argument('--batch_size', type=int, default=32, help='Batch size')
     parser.add_argument('--max_iters', type=int, default=10000, help='Maximum training iterations')
+    parser.add_argument('--total_tokens', type=int, default=None, help='Total number of tokens to process (overrides max_iters if specified)')
     parser.add_argument('--learning_rate', type=float, default=3e-4, help='Learning rate')
     parser.add_argument('--min_lr', type=float, default=3e-5, help='Minimum learning rate')
     parser.add_argument('--warmup_iters', type=int, default=1000, help='Warmup iterations')
@@ -181,12 +182,26 @@ def main():
         start_iter = load_checkpoint(args.resume_from, model, optimizer)
         print(f"Resuming from iteration {start_iter}")
     
+    # Calculate training parameters
+    tokens_per_batch = args.batch_size * args.context_length
+    tokens_processed = start_iter * tokens_per_batch
+    
+    # Determine stopping condition
+    if args.total_tokens is not None:
+        max_iters = min(args.max_iters, (args.total_tokens + tokens_per_batch - 1) // tokens_per_batch)
+        print(f"Will stop at {args.total_tokens:,} tokens ({max_iters:,} iterations)")
+    else:
+        max_iters = args.max_iters
+        print(f"Will stop at {max_iters:,} iterations")
+    
     # Training loop
     print(f"Starting training from iteration {start_iter}")
     print(f"Device: {args.device}")
     print(f"Model parameters: {sum(p.numel() for p in model.parameters()):,}")
+    print(f"Tokens per batch: {tokens_per_batch:,}")
+    print(f"Tokens processed so far: {tokens_processed:,}")
     
-    for iteration in range(start_iter, args.max_iters):
+    for iteration in range(start_iter, max_iters):
         # Get batch
         x, y = get_batch(train_data, args.batch_size, args.context_length, args.device)
         
@@ -219,11 +234,15 @@ def main():
         # Optimizer step
         optimizer.step()
         
+        # Update token count
+        tokens_processed += tokens_per_batch
+        
         # Logging
         if iteration % args.log_interval == 0:
-            print(f"Iter {iteration:5d} | Loss: {loss.item():.4f} | LR: {lr:.6f}")
+            print(f"Iter {iteration:5d} | Loss: {loss.item():.4f} | LR: {lr:.6f} | Tokens: {tokens_processed:,}")
             tracker.log_metric("train_loss", loss.item(), iteration)
             tracker.log_metric("learning_rate", lr, iteration)
+            tracker.log_metric("tokens_processed", tokens_processed, iteration)
         
         # Evaluation
         if iteration % args.eval_interval == 0 and iteration > 0:
@@ -242,8 +261,9 @@ def main():
     
     # Save final checkpoint
     final_checkpoint_path = os.path.join(args.checkpoint_dir, 'final_checkpoint.pt')
-    save_checkpoint(model, optimizer, args.max_iters, final_checkpoint_path)
+    save_checkpoint(model, optimizer, max_iters, final_checkpoint_path)
     print(f"Saved final checkpoint: {final_checkpoint_path}")
+    print(f"Total tokens processed: {tokens_processed:,}")
     
     # Generate loss curve plots
     tracker.plot_loss_curves(x_axis="steps")
