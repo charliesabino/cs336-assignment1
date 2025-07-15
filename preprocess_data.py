@@ -7,7 +7,7 @@ import argparse
 import os
 import pickle
 import numpy as np
-from cs336_basics.tokenizer import Tokenizer
+from cs336_basics.tokenizer import Tokenizer, tokenize
 
 
 def parse_args():
@@ -16,8 +16,8 @@ def parse_args():
     
     parser.add_argument('--input_file', type=str, required=True, help='Input text file')
     parser.add_argument('--output_file', type=str, required=True, help='Output numpy file')
-    parser.add_argument('--vocab_file', type=str, required=True, help='Vocabulary file (.pkl)')
-    parser.add_argument('--merges_file', type=str, required=True, help='Merges file (.pkl)')
+    parser.add_argument('--vocab_size', type=int, default=32000, help='Vocabulary size (default: 32000)')
+    parser.add_argument('--special_tokens', nargs='*', default=['<|endoftext|>'], help='Special tokens (default: <|endoftext|>)')
     
     return parser.parse_args()
 
@@ -25,16 +25,13 @@ def parse_args():
 def main():
     args = parse_args()
     
-    # Load tokenizer
-    print(f"Loading vocabulary from {args.vocab_file}")
-    with open(args.vocab_file, 'rb') as f:
-        vocab = pickle.load(f)
+    # Train tokenizer from text file
+    print(f"Training tokenizer from {args.input_file}")
+    print(f"Vocabulary size: {args.vocab_size}")
+    print(f"Special tokens: {args.special_tokens}")
     
-    print(f"Loading merges from {args.merges_file}")
-    with open(args.merges_file, 'rb') as f:
-        merges = pickle.load(f)
-    
-    tokenizer = Tokenizer(vocab, merges)
+    vocab, merges = tokenize(args.input_file, args.vocab_size, args.special_tokens)
+    tokenizer = Tokenizer(vocab, merges, args.special_tokens)
     
     # Read and tokenize text
     print(f"Reading text from {args.input_file}")
